@@ -207,6 +207,28 @@ button{font-family:inherit;}
 .sd-ev-ic{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;color:#fff}
 .sd-ev-h{font-weight:700;font-size:13px;color:var(--text)}
 .sd-ev-d{font-size:12px;color:var(--t2);margin-top:1px}
+/* Tarjetas de estado de marcación */
+.mk-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin-bottom:8px}
+.mk-card{border:1px solid var(--border);border-radius:12px;padding:13px 14px;background:var(--card);position:relative;overflow:hidden}
+.mk-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:5px}
+.mk-card.ok::before{background:var(--green)}
+.mk-card.no::before{background:#CBD5E1}
+.mk-card .mk-nm{font-size:14px;font-weight:800;color:var(--text);padding-left:6px}
+.mk-card .mk-sup{font-size:11px;color:var(--t3);padding-left:6px;margin-top:1px}
+.mk-card .mk-st{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:4px 10px;border-radius:20px;margin:9px 0 0 6px}
+.mk-card.ok .mk-st{background:var(--green-l);color:var(--green)}
+.mk-card.no .mk-st{background:#F1F5F9;color:#64748B}
+.mk-card .mk-fin{font-size:11px;color:var(--t2);padding-left:6px;margin-top:5px}
+.mk-btn{display:block;width:100%;margin-top:11px;border:none;border-radius:9px;padding:9px;background:var(--blue);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;font-family:inherit}
+.mk-btn:hover{background:#1D4ED8}
+.mk-card{transition:transform .12s ease, box-shadow .12s ease}
+.mk-card.ok{cursor:pointer}
+.mk-card.ok:hover{transform:translateY(-2px);box-shadow:0 10px 22px rgba(2,6,23,.10)}
+.mk-head{display:flex;align-items:center;gap:9px;padding-left:6px}
+.mk-av{width:36px;height:36px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#fff;flex-shrink:0}
+.mk-live{width:9px;height:9px;border-radius:50%;background:var(--green);display:inline-block;animation:mkpulse 1.6s infinite}
+@keyframes mkpulse{0%{box-shadow:0 0 0 0 rgba(5,150,105,.55)}70%{box-shadow:0 0 0 9px rgba(5,150,105,0)}100%{box-shadow:0 0 0 0 rgba(5,150,105,0)}}
+.sd-addr{background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:11px 15px;font-size:13px;color:var(--text);margin-bottom:14px}
 
 /* CAUSAL CARD DETAIL */
 .cau-card{background:var(--card);border:.5px solid var(--border);border-radius:12px;margin-bottom:14px;overflow:hidden;}
@@ -1508,13 +1530,29 @@ function generarAsistDemo(mes) {
 // MARCACIONES (inicio/fin con foto, GPS y anti-fraude de hora)
 // ════════════════════════════════════════════════════════
 // Filas: [ID,Fecha,HoraSrv,HoraEq,Delta,Alterada,Usuario,Tipo,Dist,Vendedor,Lat,Lng,Ubic,Bateria,FotoURL]
+// Normaliza hora: Sheets a veces devuelve "1899-12-30THH:mm:ssZ" → extrae "HH:mm:ss"
+function normHora(h){
+  h=String(h||''); if(!h) return '';
+  var m=h.match(/(\d{2}:\d{2}:\d{2})/); if(m) return m[1];
+  m=h.match(/(\d{1,2}:\d{2})/); if(m) return m[1];
+  return h;
+}
+// Normaliza batería: Sheets convierte "86%" en el número 0.86 → lo vuelve a "86%"
+function normBat(v){
+  var s=String(v||''); if(!s) return '';
+  if(s.indexOf('%')>=0) return s;
+  var n=parseFloat(s); if(isNaN(n)) return '';
+  if(n<=1.0001) return Math.round(n*100)+'%';
+  return Math.round(n)+'%';
+}
+function supDe(u){ for(var s in SUP_MAP){ if((SUP_MAP[s]||[]).indexOf(u)>=0) return s; } return ''; }
 function convertirMarcaGAS(filas){
   return filas.map(function(f){
     return {
-      id:String(f[0]), fecha:normFStock(f[1]), horaSrv:String(f[2]||''), horaEq:String(f[3]||''),
+      id:String(f[0]), fecha:normFStock(f[1]), horaSrv:normHora(f[2]), horaEq:normHora(f[3]),
       delta:Number(f[4]||0), alterada:(String(f[5]||'')==='SI'), usuario:String(f[6]||'').trim().toUpperCase(),
       tipo:String(f[7]||'INICIO'), dist:String(f[8]||''), vendedor:String(f[9]||''),
-      lat:String(f[10]||''), lng:String(f[11]||''), ubic:String(f[12]||''), bateria:String(f[13]||''), foto:String(f[14]||'')
+      lat:String(f[10]||''), lng:String(f[11]||''), ubic:String(f[12]||''), bateria:normBat(f[13]), foto:String(f[14]||'')
     };
   });
 }
@@ -1555,35 +1593,92 @@ function generarMarcaDemo(dias){
   });
   return out;
 }
+function irStatusDayDe(user){
+  SD_USER=user; SD_FECHA=(FECHA_HASTA||hoy());
+  setTab('statusday');
+  sdCargar();
+}
 function renderMarcaciones(){
   var data=marcaFiltrado().slice();
   var cont=document.getElementById('content');
-  if(!data.length){ cont.innerHTML='<div class="empty">No hay marcaciones para este rango y filtros. Las promotoras marcan inicio/fin desde el app.</div>'; return; }
-  data.sort(function(a,b){ if(a.fecha!==b.fecha) return a.fecha<b.fecha?1:-1; return a.horaSrv<b.horaSrv?1:-1; });
-  var inicios=data.filter(function(r){return r.tipo==='INICIO';}).length;
-  var fines=data.filter(function(r){return r.tipo==='FIN';}).length;
+
+  // Estado por usuario (última INICIO y FIN dentro del rango/filtro)
+  var porUser={};
+  data.forEach(function(r){
+    if(!porUser[r.usuario]) porUser[r.usuario]={};
+    if(r.tipo==='FIN'){ if(!porUser[r.usuario].fin || r.horaSrv>porUser[r.usuario].fin.horaSrv) porUser[r.usuario].fin=r; }
+    else { if(!porUser[r.usuario].ini || r.horaSrv>porUser[r.usuario].ini.horaSrv) porUser[r.usuario].ini=r; }
+  });
+  // Universo de usuarios a mostrar según rol y filtros (sin bajas)
+  var universo = SESION.role==='jefe' ? TODOS_PROMS.slice() : (SUP_MAP[SESION.user]||[]).slice();
+  universo = universo.filter(function(u){ return BAJA_PROMS.indexOf(u)<0; });
+  if(FILTROS.promotora) universo = universo.filter(function(u){ return u===FILTROS.promotora; });
+  if(FILTROS.supervisor) universo = universo.filter(function(u){ return (SUP_MAP[FILTROS.supervisor]||[]).indexOf(u)>=0; });
+
+  var marcaron = universo.filter(function(u){ return porUser[u] && porUser[u].ini; });
+  var sinMarcar = universo.filter(function(u){ return !(porUser[u] && porUser[u].ini); });
   var alertas=data.filter(function(r){return r.alterada;});
+
   var html='';
+  html+='<div style="font-size:17px;font-weight:700;color:var(--text);margin-bottom:4px">📍 Marcaciones — estado del equipo</div>';
+  html+='<div style="font-size:12px;color:var(--t2);margin-bottom:14px">Muestra quién marcó su inicio de ruta. Toca "Ver recorrido" en un usuario activo para ir a su Status Day.</div>';
+
+  // Alerta de fraude
   if(alertas.length){
     var q={}; alertas.forEach(function(r){q[r.usuario]=true;});
-    html+='<div class="insight" style="border-left:4px solid var(--red)"><div class="insight-lbl">🛡 ALERTA DE HORA MANIPULADA</div><div class="insight-txt"><strong>'+Object.keys(q).length+' usuario(s)</strong> marcaron con la hora del equipo alterada: <strong>'+Object.keys(q).join(', ')+'</strong>. La hora oficial registrada es la del servidor, no la del teléfono.</div></div>';
+    html+='<div class="insight" style="border-left:4px solid var(--red)"><div class="insight-lbl">🛡 ALERTA DE HORA MANIPULADA</div><div class="insight-txt"><strong>'+Object.keys(q).join(', ')+'</strong> marcaron con la hora del equipo alterada. La hora oficial es la del servidor.</div></div>';
   }
+
+  // KPIs
   html+='<div class="kpis">';
-  html+=kpiCard('Marcaciones',data.length);
-  html+=kpiCard('Inicios',inicios,'g');
-  html+=kpiCard('Fines',fines);
-  html+=kpiCard('Alertas de hora',alertas.length, alertas.length?'r':'g');
+  html+=kpiCard('Marcaron inicio', marcaron.length, marcaron.length?'g':'a');
+  html+=kpiCard('Sin marcar', sinMarcar.length, sinMarcar.length?'r':'g');
+  html+=kpiCard('Total usuarios', universo.length);
+  html+=kpiCard('Alertas de hora', alertas.length, alertas.length?'r':'g');
   html+='</div>';
-  html+='<div class="sec"><div class="sec-hdr"><div class="sec-ttl"><div class="sec-ttl-ico">📍</div>Marcaciones del periodo</div></div>';
-  html+='<table class="tbl"><thead><tr><th>Usuario</th><th>Tipo</th><th>Fecha</th><th>Hora</th><th>Distribuidora</th><th>Vendedor</th><th>Ubicación</th><th class="r">Batería</th><th class="r">Hora equipo</th><th>Foto</th></tr></thead><tbody>';
-  data.forEach(function(r){
-    var tipoB=r.tipo==='FIN'?'<span class="bdg bdg-a">FIN</span>':'<span class="bdg bdg-g">INICIO</span>';
-    var mapa=(r.lat&&r.lng)?'<a href="https://maps.google.com/?q='+r.lat+','+r.lng+'" target="_blank" style="color:var(--blue)">'+(r.ubic||(r.lat+', '+r.lng))+'</a>':'—';
-    var foto=(r.foto && r.foto.indexOf('http')===0)?'<a href="'+r.foto+'" target="_blank" style="color:var(--blue)">Ver 📷</a>':'—';
-    var alt=r.alterada?'<span class="bdg bdg-r">⚠ '+Math.abs(r.delta)+'s</span>':'<span class="bdg bdg-g">✓</span>';
-    html+='<tr><td><strong>'+r.usuario+'</strong></td><td>'+tipoB+'</td><td>'+fmtFecha(r.fecha)+'</td><td>'+(r.horaSrv||'—')+'</td><td>'+r.dist+'</td><td>'+r.vendedor+'</td><td>'+mapa+'</td><td class="r num">'+(r.bateria||'—')+'</td><td class="r">'+alt+'</td><td>'+foto+'</td></tr>';
+
+  // Tarjetas: primero los que marcaron (verde), luego sin marcar
+  var orden = marcaron.concat(sinMarcar);
+  var colores=['#2563EB','#059669','#D97706','#7C3AED','#0D9488','#DB2777','#0891B2'];
+  function inic(u){ return u.replace(/[^A-Z0-9]/gi,'').slice(-2).toUpperCase(); }
+  function colUsr(u){ var s=0; for(var i=0;i<u.length;i++) s+=u.charCodeAt(i); return colores[s%colores.length]; }
+  html+='<div class="sec"><div class="sec-hdr"><div class="sec-ttl"><div class="sec-ttl-ico">🟢</div>Estado de marcación del equipo</div></div>';
+  html+='<div class="mk-grid">';
+  orden.forEach(function(u){
+    var ini = porUser[u] && porUser[u].ini;
+    var fin = porUser[u] && porUser[u].fin;
+    var sup = supDe(u);
+    if(ini){
+      html+='<div class="mk-card ok" onclick="irStatusDayDe(\''+u+'\')" title="Ver recorrido de '+u+'">';
+      html+='<div class="mk-head"><div class="mk-av" style="background:'+colUsr(u)+'">'+inic(u)+'</div><div><div class="mk-nm" style="padding-left:0">'+u+'</div>'+(sup?'<div class="mk-sup" style="padding-left:0">'+sup+'</div>':'')+'</div></div>';
+      html+='<div class="mk-st">'+(fin?'✓':'<span class="mk-live"></span>')+' '+(fin?'Jornada cerrada':'En ruta')+' · '+(ini.horaSrv||'')+'</div>';
+      html+=fin?('<div class="mk-fin">🏁 Fin: '+(fin.horaSrv||'')+'</div>'):('<div class="mk-fin">Inició a las '+(ini.horaSrv||'')+'</div>');
+      html+='<button class="mk-btn" onclick="event.stopPropagation();irStatusDayDe(\''+u+'\')">🗺️ Ver recorrido</button>';
+      html+='</div>';
+    } else {
+      html+='<div class="mk-card no">';
+      html+='<div class="mk-head"><div class="mk-av" style="background:#CBD5E1;color:#64748B">'+inic(u)+'</div><div><div class="mk-nm" style="padding-left:0">'+u+'</div>'+(sup?'<div class="mk-sup" style="padding-left:0">'+sup+'</div>':'')+'</div></div>';
+      html+='<div class="mk-st">✗ Sin marcar inicio</div>';
+      html+='</div>';
+    }
   });
-  html+='</tbody></table></div>';
+  html+='</div></div>';
+
+  // Tabla detallada (todas las marcaciones)
+  if(data.length){
+    data.sort(function(a,b){ if(a.fecha!==b.fecha) return a.fecha<b.fecha?1:-1; return a.horaSrv<b.horaSrv?1:-1; });
+    html+='<div class="sec"><div class="sec-hdr"><div class="sec-ttl"><div class="sec-ttl-ico">📋</div>Detalle de marcaciones</div></div>';
+    html+='<table class="tbl"><thead><tr><th>Usuario</th><th>Tipo</th><th>Fecha</th><th>Hora</th><th>Distribuidora</th><th>Vendedor</th><th>Ubicación</th><th class="r">Batería</th><th class="r">Hora equipo</th><th>Foto</th></tr></thead><tbody>';
+    data.forEach(function(r){
+      var tipoB=r.tipo==='FIN'?'<span class="bdg bdg-a">FIN</span>':'<span class="bdg bdg-g">INICIO</span>';
+      var mapa=(r.lat&&r.lng)?'<a href="https://maps.google.com/?q='+r.lat+','+r.lng+'" target="_blank" style="color:var(--blue)">'+(r.ubic||(r.lat+', '+r.lng))+'</a>':'—';
+      var foto=(r.foto && r.foto.indexOf('http')===0)?'<a href="'+r.foto+'" target="_blank" style="color:var(--blue)">Ver 📷</a>':'—';
+      var alt=r.alterada?'<span class="bdg bdg-r">⚠ '+Math.abs(r.delta)+'s</span>':'<span class="bdg bdg-g">✓</span>';
+      html+='<tr><td><strong>'+r.usuario+'</strong></td><td>'+tipoB+'</td><td>'+fmtFecha(r.fecha)+'</td><td>'+(r.horaSrv||'—')+'</td><td>'+r.dist+'</td><td>'+r.vendedor+'</td><td>'+mapa+'</td><td class="r num">'+(r.bateria||'—')+'</td><td class="r">'+alt+'</td><td>'+foto+'</td></tr>';
+    });
+    html+='</tbody></table></div>';
+  }
+
   cont.innerHTML=html;
 }
 
@@ -1592,20 +1687,27 @@ function renderMarcaciones(){
 // ════════════════════════════════════════════════════════
 var _leafletReady=false;
 function ensureLeaflet(cb){
-  if(typeof L!=='undefined'){ _leafletReady=true; cb(); return; }
-  var css=document.createElement('link'); css.rel='stylesheet';
-  css.href='https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css'; document.head.appendChild(css);
+  if(typeof L!=='undefined'){ cb(); return; }
+  var done=0, need=2, fired=false;
+  function ready(){ done++; if(done>=need && !fired){ fired=true; cb(); } }
+  // CSS (crítico: sin el CSS de Leaflet las tiles salen en blanco)
+  if(!document.getElementById('leaflet-css')){
+    var css=document.createElement('link'); css.id='leaflet-css'; css.rel='stylesheet';
+    css.href='https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
+    css.onload=ready; css.onerror=ready; document.head.appendChild(css);
+  } else { ready(); }
+  // JS
   var s=document.createElement('script');
   s.src='https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
-  s.onload=function(){ _leafletReady=true; cb(); };
-  s.onerror=function(){ cb(); };
-  document.head.appendChild(s);
+  s.onload=ready; s.onerror=ready; document.head.appendChild(s);
+  // Respaldo por si algún onload no dispara
+  setTimeout(function(){ if(!fired){ fired=true; cb(); } }, 3000);
 }
 // Ubicaciones: [ID,Fecha,Hora,Usuario,Lat,Lng,Precision,Bateria]
 function convertirUbicGAS(filas){
   return filas.map(function(f){
-    return {hora:String(f[2]||''), usuario:String(f[3]||'').trim().toUpperCase(),
-      lat:parseFloat(f[4]), lng:parseFloat(f[5]), acc:String(f[6]||''), bat:String(f[7]||'')};
+    return {hora:normHora(f[2]), usuario:String(f[3]||'').trim().toUpperCase(),
+      lat:parseFloat(f[4]), lng:parseFloat(f[5]), acc:String(f[6]||''), bat:normBat(f[7])};
   }).filter(function(p){ return !isNaN(p.lat) && !isNaN(p.lng); });
 }
 function sdProms(){
@@ -1677,10 +1779,11 @@ function sdPintar(){
   html+=kpiCard('Distancia aprox', dist.toFixed(2)+' km');
   html+=kpiCard('Última batería', ultBat||'—');
   html+='</div>';
+  html+='<div id="sd-addr" class="sd-addr">📍 Última ubicación: <span style="color:var(--t2)">calculando…</span></div>';
   // Grid: timeline + mapa
   html+='<div class="sd-grid">';
   html+='<div class="sec" style="margin:0"><div class="sec-hdr"><div class="sec-ttl"><div class="sec-ttl-ico">🕐</div>Línea del tiempo</div></div><div class="sd-tl" id="sd-tl"></div></div>';
-  html+='<div class="sec" style="margin:0;padding:8px"><div id="sd-map"></div></div>';
+  html+='<div class="sec" style="margin:0;padding:8px"><div id="sd-map" style="height:540px;width:100%"></div></div>';
   html+='</div>';
   out.innerHTML=html;
   // Timeline
@@ -1699,28 +1802,61 @@ function sdPintar(){
 }
 function sdMapa(ini,fin){
   var el=document.getElementById('sd-map'); if(!el) return;
-  if(typeof L==='undefined'){ el.innerHTML='<div class="empty" style="padding:20px">No se pudo cargar el mapa (revisa la conexión).</div>'; return; }
+  if(typeof L==='undefined'){ el.innerHTML='<div class="empty" style="padding:20px">No se pudo cargar el mapa (revisa la conexión a internet).</div>'; return; }
   if(SD_MAP){ try{ SD_MAP.remove(); }catch(e){} SD_MAP=null; }
   var pts=SD_UBIC.map(function(p){ return [p.lat,p.lng]; });
-  // incluir marcaciones como puntos si tienen coords
   var iniPt = ini&&ini.lat?[parseFloat(ini.lat),parseFloat(ini.lng)]:null;
   var finPt = fin&&fin.lat?[parseFloat(fin.lat),parseFloat(fin.lng)]:null;
   var all=pts.slice(); if(iniPt)all.unshift(iniPt); if(finPt)all.push(finPt);
-  if(!all.length){ el.innerHTML='<div class="empty" style="padding:20px">Sin coordenadas para mostrar en el mapa.</div>'; return; }
-  SD_MAP=L.map(el).setView(all[0],14);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(SD_MAP);
+  all=all.filter(function(c){ return c && !isNaN(c[0]) && !isNaN(c[1]) && (c[0]!==0 || c[1]!==0); });
+  var addrEl=document.getElementById('sd-addr');
+  if(!all.length){
+    el.innerHTML='<div class="empty" style="padding:24px">Sin coordenadas GPS para mostrar. La promotora debe tener el app abierto y permitir la ubicación.</div>';
+    if(addrEl) addrEl.style.display='none';
+    return;
+  }
+  SD_MAP=L.map(el).setView(all[0],15);
+  // Capa de mapa CARTO Voyager: muestra calles, ciudad y distrito con claridad (confiable)
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',{
+    maxZoom:20, subdomains:'abcd', attribution:'&copy; OpenStreetMap &copy; CARTO'
+  }).addTo(SD_MAP);
   // recorrido
   if(all.length>1) L.polyline(all,{color:'#2563EB',weight:3,opacity:.7}).addTo(SD_MAP);
   // pings
-  SD_UBIC.forEach(function(p,i){
-    L.circleMarker([p.lat,p.lng],{radius:5,color:'#2563EB',fillColor:'#2563EB',fillOpacity:.8})
-      .addTo(SD_MAP).bindPopup('📍 '+p.hora+'<br>🔋 '+(p.bat||'—'));
+  SD_UBIC.forEach(function(p){
+    L.circleMarker([p.lat,p.lng],{radius:5,color:'#fff',weight:1,fillColor:'#2563EB',fillOpacity:.85})
+      .addTo(SD_MAP).bindPopup('📍 '+p.hora+'<br>🔋 '+(p.bat||'—')+(p.acc?('<br>Precisión ±'+p.acc+' m'):''));
   });
+  // círculo de precisión del último punto (útil cuando el GPS es impreciso)
+  var last=SD_UBIC.length?SD_UBIC[SD_UBIC.length-1]:null;
+  if(last && last.acc && !isNaN(parseFloat(last.acc)) && parseFloat(last.acc)>0){
+    L.circle([last.lat,last.lng],{radius:Math.min(parseFloat(last.acc),3000),color:'#2563EB',weight:1,fillOpacity:.08}).addTo(SD_MAP);
+  }
   // inicio / fin
-  if(iniPt) L.circleMarker(iniPt,{radius:9,color:'#fff',weight:2,fillColor:'#059669',fillOpacity:1}).addTo(SD_MAP).bindPopup('🟢 INICIO · '+(ini.horaSrv||''));
-  if(finPt) L.circleMarker(finPt,{radius:9,color:'#fff',weight:2,fillColor:'#DC2626',fillOpacity:1}).addTo(SD_MAP).bindPopup('🏁 FIN · '+(fin.horaSrv||''));
-  try{ SD_MAP.fitBounds(L.latLngBounds(all),{padding:[30,30]}); }catch(e){}
-  setTimeout(function(){ if(SD_MAP) SD_MAP.invalidateSize(); }, 200);
+  if(iniPt) L.circleMarker(iniPt,{radius:10,color:'#fff',weight:3,fillColor:'#059669',fillOpacity:1}).addTo(SD_MAP).bindPopup('🟢 INICIO · '+(ini.horaSrv||''));
+  if(finPt) L.circleMarker(finPt,{radius:10,color:'#fff',weight:3,fillColor:'#DC2626',fillOpacity:1}).addTo(SD_MAP).bindPopup('🏁 FIN · '+(fin.horaSrv||''));
+  function ajustar(){ if(!SD_MAP) return; SD_MAP.invalidateSize(); try{ SD_MAP.fitBounds(L.latLngBounds(all),{padding:[35,35], maxZoom:16}); }catch(e){} }
+  setTimeout(ajustar,120); setTimeout(ajustar,450); setTimeout(ajustar,1100);
+  // Dirección con nombre (departamento / ciudad / distrito) del último punto
+  var ref = last || {lat:all[all.length-1][0], lng:all[all.length-1][1]};
+  if(addrEl){
+    addrEl.style.display='block';
+    var gmap='https://maps.google.com/?q='+ref.lat+','+ref.lng;
+    sdReverseGeo(ref.lat, ref.lng, function(txt){
+      addrEl.innerHTML='📍 Última ubicación: <strong>'+(txt||(Number(ref.lat).toFixed(5)+', '+Number(ref.lng).toFixed(5)))+'</strong>'
+        +' &nbsp;·&nbsp; <a href="'+gmap+'" target="_blank" style="color:var(--blue);font-weight:600">Ver en Google Maps ↗</a>';
+    });
+  }
+}
+function sdReverseGeo(lat,lng,cb){
+  try{
+    var x=new XMLHttpRequest();
+    x.open('GET','https://api.bigdatacloud.net/data/reverse-geocode-client?latitude='+lat+'&longitude='+lng+'&localityLanguage=es',true);
+    x.timeout=6000;
+    x.onload=function(){ try{ var r=JSON.parse(x.responseText); var p=[r.locality,r.city,r.principalSubdivision,r.countryName].filter(function(z){return z;}); cb(p.join(', ')); }catch(e){ cb(''); } };
+    x.onerror=function(){ cb(''); }; x.ontimeout=function(){ cb(''); };
+    x.send();
+  }catch(e){ cb(''); }
 }
 function generarUbicDemo(user,fecha){
   // trail demo alrededor de Lima (o Arequipa para AQP), moviéndose
