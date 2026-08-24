@@ -1588,10 +1588,24 @@ function generarAsistDemo(mes) {
 // Normaliza hora: Sheets a veces devuelve "1899-12-30THH:mm:ssZ" → extrae "HH:mm:ss"
 function normHora(h){
   h=String(h||''); if(!h) return '';
+  // Sheets serializa las horas en UTC (formato ...T##:##:##Z). Perú es UTC-5 (sin horario de verano).
+  var iso=h.match(/T(\d{2}):(\d{2}):(\d{2})/);
+  if(iso){
+    var hh=(parseInt(iso[1],10)+24-5)%24;
+    return ('0'+hh).slice(-2)+':'+iso[2]+':'+iso[3];
+  }
   var m=h.match(/(\d{2}:\d{2}:\d{2})/); if(m) return m[1];
   m=h.match(/(\d{1,2}:\d{2})/); if(m) return m[1];
   return h;
 }
+// Recupera coordenadas que perdieron el punto decimal al guardarse (ej. -12054054 → -12.054054)
+function fixCoord(v, max){
+  var n=parseFloat(v); if(isNaN(n)) return NaN;
+  var g=0;
+  while(Math.abs(n)>max && g<10){ n=n/10; g++; }
+  return Math.round(n*1e6)/1e6;
+}
+function coordStr(v, max){ var n=fixCoord(v,max); return isNaN(n)?'':String(n); }
 // Normaliza batería: Sheets convierte "86%" en el número 0.86 → lo vuelve a "86%"
 function normBat(v){
   var s=String(v||''); if(!s) return '';
@@ -1607,7 +1621,7 @@ function convertirMarcaGAS(filas){
       id:String(f[0]), fecha:normFStock(f[1]), horaSrv:normHora(f[2]), horaEq:normHora(f[3]),
       delta:Number(f[4]||0), alterada:(String(f[5]||'')==='SI'), usuario:String(f[6]||'').trim().toUpperCase(),
       tipo:String(f[7]||'INICIO'), dist:String(f[8]||''), vendedor:String(f[9]||''),
-      lat:String(f[10]||''), lng:String(f[11]||''), ubic:String(f[12]||''), bateria:normBat(f[13]), foto:String(f[14]||'')
+      lat:coordStr(f[10],90), lng:coordStr(f[11],180), ubic:String(f[12]||''), bateria:normBat(f[13]), foto:String(f[14]||'')
     };
   });
 }
@@ -1762,7 +1776,7 @@ function ensureLeaflet(cb){
 function convertirUbicGAS(filas){
   return filas.map(function(f){
     return {hora:normHora(f[2]), usuario:String(f[3]||'').trim().toUpperCase(),
-      lat:parseFloat(f[4]), lng:parseFloat(f[5]), acc:String(f[6]||''), bat:normBat(f[7])};
+      lat:fixCoord(f[4],90), lng:fixCoord(f[5],180), acc:String(f[6]||''), bat:normBat(f[7])};
   }).filter(function(p){ return !isNaN(p.lat) && !isNaN(p.lng); });
 }
 function sdProms(){
