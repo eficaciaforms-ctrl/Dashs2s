@@ -237,6 +237,9 @@ button{font-family:inherit;}
 .mk-card.ok .mk-st{background:var(--green-l);color:var(--green)}
 .mk-card.no .mk-st{background:#F1F5F9;color:#64748B}
 .mk-card .mk-fin{font-size:11px;color:var(--t2);padding-left:6px;margin-top:5px}
+.mk-rows{margin:9px 0 2px 6px;display:flex;flex-direction:column;gap:3px}
+.mk-row{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--t2)}
+.mk-row b{color:var(--text);font-weight:700}
 .mk-btn{display:block;width:100%;margin-top:11px;border:none;border-radius:9px;padding:9px;background:var(--blue);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;font-family:inherit}
 .mk-btn:hover{background:#1D4ED8}
 .mk-card{transition:transform .12s ease, box-shadow .12s ease}
@@ -735,6 +738,9 @@ var DATA = [];
 var STOCK_DATA = [];
 var ATT_DIAS = {};     // {usuario:['YYYY-MM-DD',...]} dias con relevo del mes
 var MARCA_DATA = [];   // marcaciones del rango
+var UBIC_DIA = [];     // ubicaciones (pings) para la pestaña de marcaciones
+var LOAD_SEQ = 0;      // guardián anti-respuestas-obsoletas (evita que una carga vieja pise a la nueva)
+var _marcaKey = '';    // caché: rango+equipo ya cargado en marcaciones
 var SD_USER='', SD_FECHA='', SD_MARCAS=[], SD_UBIC=[], SD_MAP=null;
 var ATT_MES  = '';     // 'YYYY-MM' seleccionado en la tabla de asistencia
 var TAB_ACTUAL = "resumen";
@@ -1179,6 +1185,7 @@ function cargarStock(dias, promsCSV) {
     return;
   }
   if (!dias || !dias.length) { STOCK_DATA = []; return; }
+  var seq = LOAD_SEQ;
   var todas = [];
   var pend = dias.length;
   dias.forEach(function(d) {
@@ -1186,6 +1193,7 @@ function cargarStock(dias, promsCSV) {
       if (resp && resp.status === 'ok' && resp.filas) todas = todas.concat(resp.filas);
       pend--;
       if (pend === 0) {
+        if (seq !== LOAD_SEQ) return;
         STOCK_DATA = convertirStockGAS(todas).filter(function(r) {
           return r.fecha >= FECHA_DESDE && r.fecha <= FECHA_HASTA;
         });
@@ -1447,7 +1455,9 @@ function cargarAsistencia(mes) {
   if (MODO_DATOS === 'DEMO') { ATT_DIAS = generarAsistDemo(mes); renderAsistencia(); return; }
   var proms = SESION.role === 'jefe' ? TODOS_PROMS.slice() : (SUP_MAP[SESION.user] || []);
   if (!proms.length) { ATT_DIAS = {}; renderAsistencia(); return; }
+  var seq = ++LOAD_SEQ;
   gasGetReal({accion: 'dias_relevados', promotoras: proms.join(','), mes: mes}, function(resp) {
+    if (seq !== LOAD_SEQ) return;
     ATT_DIAS = (resp && resp.status === 'ok' && resp.dias) ? resp.dias : {};
     renderAsistencia();
   });
@@ -1633,20 +1643,53 @@ function marcaFiltrado(){
     return true;
   });
 }
+function horasEntre(h1,h2){
+  function s(h){var p=String(h||'').split(':');return (parseInt(p[0],10)||0)*3600+(parseInt(p[1],10)||0)*60+(parseInt(p[2],10)||0);}
+  if(!h1||!h2) return '';
+  var d=s(h2)-s(h1); if(d<0) d+=86400;
+  var hh=Math.floor(d/3600), mm=Math.floor((d%3600)/60);
+  return hh+'h '+('0'+mm).slice(-2)+'m';
+}
+// Al abrir la pestaña de Marcaciones: renderiza lo que haya y refresca solo si cambió el rango/equipo
+function irMarcaciones(){
+  renderMarcaciones();
+  var proms = SESION.role==='jefe' ? TODOS_PROMS.slice() : (SUP_MAP[SESION.user]||[]);
+  if(!proms.length) return;
+  var key = FECHA_DESDE+'|'+FECHA_HASTA+'|'+proms.join(',');
+  if(key===_marcaKey && MARCA_DATA.length) return;  // ya cargado para este rango: no re-consultar
+  cargarMarcaciones(diasArrayRango(), proms.join(','));
+}
 function cargarMarcaciones(dias, promsCSV){
-  if(MODO_DATOS==='DEMO'){ MARCA_DATA=generarMarcaDemo(dias); if(TAB_ACTUAL==='marcaciones') renderContent(); return; }
-  if(!dias||!dias.length){ MARCA_DATA=[]; return; }
-  var todas=[], pend=dias.length;
+  if(MODO_DATOS==='DEMO'){
+    MARCA_DATA=generarMarcaDemo(dias);
+    UBIC_DIA=[]; MARCA_DATA.forEach(function(m){ if(m.tipo==='INICIO') UBIC_DIA=UBIC_DIA.concat(generarUbicDemo(m.usuario, m.fecha)); });
+    _marcaKey=FECHA_DESDE+'|'+FECHA_HASTA+'|'+promsCSV;
+    if(TAB_ACTUAL==='marcaciones') renderContent();
+    return;
+  }
+  if(!dias||!dias.length){ MARCA_DATA=[]; UBIC_DIA=[]; return; }
+  var seq=LOAD_SEQ;
+  var mAll=[], uAll=[], pend=dias.length*2;
+  function done(){
+    pend--;
+    if(pend<=0){
+      if(seq!==LOAD_SEQ) return;
+      MARCA_DATA=convertirMarcaGAS(mAll).filter(function(r){return r.fecha>=FECHA_DESDE && r.fecha<=FECHA_HASTA;});
+      UBIC_DIA=convertirUbicGAS(uAll);
+      _marcaKey=FECHA_DESDE+'|'+FECHA_HASTA+'|'+promsCSV;
+      if(TAB_ACTUAL==='marcaciones') renderContent();
+    }
+  }
   dias.forEach(function(d){
-    gasGetReal({accion:'listar_marcaciones', promotoras:promsCSV, fecha:d}, function(resp){
-      if(resp && resp.status==='ok' && resp.filas) todas=todas.concat(resp.filas);
-      pend--;
-      if(pend===0){
-        MARCA_DATA=convertirMarcaGAS(todas).filter(function(r){return r.fecha>=FECHA_DESDE && r.fecha<=FECHA_HASTA;});
-        if(TAB_ACTUAL==='marcaciones') renderContent();
-      }
-    });
+    gasGetReal({accion:'listar_marcaciones', promotoras:promsCSV, fecha:d}, function(r){ if(r&&r.status==='ok'&&r.filas) mAll=mAll.concat(r.filas); done(); });
+    gasGetReal({accion:'listar_ubicaciones', promotoras:promsCSV, fecha:d}, function(r){ if(r&&r.status==='ok'&&r.filas) uAll=uAll.concat(r.filas); done(); });
   });
+}
+// Última ubicación (ping) por usuario
+function ultimaUbicDe(u){
+  var last=null;
+  UBIC_DIA.forEach(function(p){ if(p.usuario===u){ if(!last || String(p.hora)>String(last.hora)) last=p; } });
+  return last;
 }
 function generarMarcaDemo(dias){
   var f=dias[dias.length-1]||FECHA_HASTA;
@@ -1718,10 +1761,17 @@ function renderMarcaciones(){
     var fin = porUser[u] && porUser[u].fin;
     var sup = supDe(u);
     if(ini){
+      var lu = ultimaUbicDe(u);
+      var horaUlt = lu ? lu.hora : (fin?fin.horaSrv:ini.horaSrv);
+      var enRuta = horasEntre(ini.horaSrv, fin?fin.horaSrv:horaUlt);
       html+='<div class="mk-card ok" onclick="irStatusDayDe(\''+u+'\')" title="Ver recorrido de '+u+'">';
       html+='<div class="mk-head"><div class="mk-av" style="background:'+colUsr(u)+'">'+inic(u)+'</div><div><div class="mk-nm" style="padding-left:0">'+u+'</div>'+(sup?'<div class="mk-sup" style="padding-left:0">'+sup+'</div>':'')+'</div></div>';
-      html+='<div class="mk-st">'+(fin?'✓':'<span class="mk-live"></span>')+' '+(fin?'Jornada cerrada':'En ruta')+' · '+(ini.horaSrv||'')+'</div>';
-      html+=fin?('<div class="mk-fin">🏁 Fin: '+(fin.horaSrv||'')+'</div>'):('<div class="mk-fin">Inició a las '+(ini.horaSrv||'')+'</div>');
+      html+='<div class="mk-st">'+(fin?'✓ Jornada cerrada':'<span class="mk-live"></span> En ruta · '+enRuta)+'</div>';
+      html+='<div class="mk-rows">';
+      html+='<div class="mk-row"><span>🟢 Inició</span><b>'+(ini.horaSrv||'—')+'</b></div>';
+      html+='<div class="mk-row"><span>📍 Últ. ubicación</span><b>'+(lu?lu.hora:'—')+'</b></div>';
+      html+='<div class="mk-row"><span>'+(fin?'🏁 Fin':'⏱ En ruta')+'</span><b>'+(fin?(fin.horaSrv||'—'):(enRuta||'—'))+'</b></div>';
+      html+='</div>';
       html+='<button class="mk-btn" onclick="event.stopPropagation();irStatusDayDe(\''+u+'\')">🗺️ Ver recorrido</button>';
       html+='</div>';
     } else {
@@ -1822,11 +1872,14 @@ function sdCargar(){
     sdPintar(); return;
   }
   var got=0, need=2;
+  var seq=++LOAD_SEQ;
   gasGetReal({accion:'listar_marcaciones', promotoras:SD_USER, fecha:SD_FECHA}, function(r){
+    if(seq!==LOAD_SEQ) return;
     SD_MARCAS = (r&&r.status==='ok'&&r.filas)?convertirMarcaGAS(r.filas):[];
     if(++got===need) sdPintar();
   });
   gasGetReal({accion:'listar_ubicaciones', promotoras:SD_USER, fecha:SD_FECHA}, function(r){
+    if(seq!==LOAD_SEQ) return;
     SD_UBIC = (r&&r.status==='ok'&&r.filas)?convertirUbicGAS(r.filas):[];
     if(++got===need) sdPintar();
   });
@@ -1984,6 +2037,7 @@ function cargarData() {
   // y también funciona con el GAS nuevo (que ignora los días duplicados sin problema).
   var dias = diasArrayRango();
   var promsCSV = proms.join(',');
+  var seq = ++LOAD_SEQ;   // esta es la carga vigente; las anteriores quedan obsoletas
   var todasFilas = [];
   var pendientes = dias.length;
   var diasOK = 0;
@@ -2001,6 +2055,7 @@ function cargarData() {
   }
 
   function terminar() {
+    if (seq !== LOAD_SEQ) return;   // llegó tarde: otra carga más nueva ya está en curso
     MODO_DATOS = 'REAL';
     DATA = convertirFilasGAS(todasFilas);
     // Defensa: filtrar lo que esté fuera del rango (por si el GAS retornó datos de otros días)
@@ -2013,7 +2068,9 @@ function cargarData() {
     renderFiltros();
     renderContent();
     cargarStock(dias, promsCSV);
-    cargarMarcaciones(dias, promsCSV);
+    // Marcaciones/ubicaciones se cargan de forma diferida al abrir su pestaña (irMarcaciones),
+    // para no disparar decenas de llamadas innecesarias en cada carga.
+    _marcaKey = '';   // invalida la caché: el rango cambió
     if (diasFail > 0) {
       console.warn('Días con error de carga:', diasFail, 'de', dias.length);
     }
@@ -2283,7 +2340,7 @@ function renderContent() {
   else if (TAB_ACTUAL === 'stock_res') renderStockRes();
   else if (TAB_ACTUAL === 'geo') renderGeo();
   else if (TAB_ACTUAL === 'asistencia') irAsistencia();
-  else if (TAB_ACTUAL === 'marcaciones') renderMarcaciones();
+  else if (TAB_ACTUAL === 'marcaciones') irMarcaciones();
   else if (TAB_ACTUAL === 'statusday') renderStatusDay();
   else if (TAB_ACTUAL === 'conclusiones') renderConclusiones();
 }
