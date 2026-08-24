@@ -79,6 +79,24 @@ button{font-family:inherit;}
 
 /* TABS */
 .tabs{background:var(--card);border-bottom:1px solid var(--border);padding:0 24px;display:flex;gap:2px;overflow-x:auto;position:sticky;top:114px;z-index:1080;}
+/* ── Menú lateral colapsable (tipo Involves) ── */
+.dash{margin-left:64px}
+.side{position:fixed;left:0;top:0;bottom:0;width:64px;background:linear-gradient(180deg,#2563EB 0%,#1E3A8A 45%,#0F172A 100%);z-index:2000;overflow:hidden;transition:width .18s ease;box-shadow:2px 0 16px rgba(2,6,23,.22);display:flex;flex-direction:column;padding-top:8px}
+.side:hover{width:240px}
+.side-logo{display:flex;align-items:center;gap:12px;padding:12px 19px 18px;color:#fff;white-space:nowrap}
+.side-logo .lg{font-size:23px;flex-shrink:0}
+.side-logo .tx{font-weight:800;font-size:15px;opacity:0;transition:opacity .15s}
+.side:hover .side-logo .tx{opacity:1}
+.side-item{display:flex;align-items:center;gap:15px;padding:13px 21px;color:#c7d2e5;cursor:pointer;white-space:nowrap;border-left:3px solid transparent;transition:background .12s,color .12s}
+.side-item .ic{font-size:19px;width:22px;text-align:center;flex-shrink:0}
+.side-item .lb{font-size:13.5px;font-weight:600;opacity:0;transition:opacity .15s}
+.side:hover .side-item .lb{opacity:1}
+.side-item:hover{background:rgba(255,255,255,.09);color:#fff}
+.side-item.on{background:rgba(255,255,255,.16);color:#fff;border-left-color:#fff}
+.side-foot{margin-top:auto;padding:14px 22px;color:#93a3bd;font-size:11px;white-space:nowrap}
+.side-foot .lb{opacity:0;transition:opacity .15s}
+.side:hover .side-foot .lb{opacity:1}
+@media(max-width:640px){ .side{width:54px}.side:hover{width:214px}.dash{margin-left:54px} }
 .tabs::-webkit-scrollbar{display:none;}
 .tab{background:none;border:none;padding:14px 16px;font-size:13px;font-weight:500;color:var(--t2);cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent;transition:.15s;display:flex;align-items:center;gap:6px;}
 .tab:hover{color:var(--text);}
@@ -326,6 +344,7 @@ button{font-family:inherit;}
 
 <!-- DASHBOARD -->
 <div id="screen-dash" class="dash">
+  <div class="side" id="side"></div>
   <div class="demo-banner">⚠️ DATOS DE DEMOSTRACIÓN — Cuando se conecte el GAS verá los datos reales del Google Sheets.</div>
 
   <div class="topbar">
@@ -797,20 +816,56 @@ function iniciarDash() {
   var subTxt = SESION.user + ' · ' + (SESION.role==='jefe' ? 'Jefe de Canal · Vista Nacional' : 'Supervisor ' + SESION.zona);
   document.getElementById('tb-sub').textContent = subTxt;
 
+  renderSide();
   renderTabs();
   cargarData();
 }
 
 function renderTabs() {
+  var m = MODULOS.filter(function(x){return x.id===MODULO_ACTUAL;})[0];
+  var ids = m ? m.tabs : TABS_CONFIG.map(function(t){return t.id;});
+  var visTabs = TABS_CONFIG.filter(function(t){ return ids.indexOf(t.id)>=0; });
+  var tabsEl = document.getElementById('tabs');
+  if(visTabs.length <= 1){ tabsEl.style.display='none'; tabsEl.innerHTML=''; return; }
+  tabsEl.style.display='';
   var html = '';
-  TABS_CONFIG.forEach(function(t){
+  visTabs.forEach(function(t){
     html += '<button class="tab'+(t.id===TAB_ACTUAL?' on':'')+'" onclick="setTab(\''+t.id+'\')"><span>'+t.ico+'</span>'+t.lbl+'</button>';
   });
-  document.getElementById('tabs').innerHTML = html;
+  tabsEl.innerHTML = html;
+}
+
+// ── Menú lateral por módulos (tipo Involves) ──
+var MODULOS = [
+  {id:'ventas',       ico:'📊', lbl:'Ventas',       tabs:['resumen','causales','productos']},
+  {id:'stock',        ico:'📦', lbl:'Stock',        tabs:['stock_det','stock_res']},
+  {id:'personal',     ico:'👣', lbl:'Personal',     tabs:['marcaciones','statusday','asistencia']},
+  {id:'geografia',    ico:'📍', lbl:'Geografía',    tabs:['geo']},
+  {id:'conclusiones', ico:'📝', lbl:'Conclusiones', tabs:['conclusiones']}
+];
+var MODULO_ACTUAL = 'ventas';
+
+function renderSide(){
+  var el = document.getElementById('side'); if(!el) return;
+  var h = '<div class="side-logo"><span class="lg">📊</span><span class="tx">Dashboard S2S</span></div>';
+  MODULOS.forEach(function(m){
+    h += '<div class="side-item'+(m.id===MODULO_ACTUAL?' on':'')+'" onclick="setModulo(\''+m.id+'\')" title="'+m.lbl+'"><span class="ic">'+m.ico+'</span><span class="lb">'+m.lbl+'</span></div>';
+  });
+  h += '<div class="side-foot"><span class="lb">Kenvue Perú · S2S</span></div>';
+  el.innerHTML = h;
+}
+function setModulo(id){
+  var m = MODULOS.filter(function(x){return x.id===id;})[0]; if(!m) return;
+  MODULO_ACTUAL = id;
+  if(m.tabs.indexOf(TAB_ACTUAL) < 0) TAB_ACTUAL = m.tabs[0];
+  renderSide(); renderTabs(); renderContent();
 }
 
 function setTab(t){
   TAB_ACTUAL = t;
+  // sincronizar el módulo activo con la pestaña elegida (para saltos como Status Day)
+  MODULOS.forEach(function(m){ if(m.tabs.indexOf(t)>=0) MODULO_ACTUAL = m.id; });
+  renderSide();
   renderTabs();
   renderContent();
 }
